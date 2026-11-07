@@ -54,8 +54,11 @@ use display::DrmBackend;
 use pixel_shift::{PixelShiftManager, PIXEL_SHIFT_WIDTH_PX};
 
 const BUTTON_SPACING_PX: i32 = 16;
-const BUTTON_COLOR_INACTIVE: f64 = 0.200;
-const BUTTON_COLOR_ACTIVE: f64 = 0.400;
+// Idle and pressed button slabs are pure black, so the bar has no grey fill.
+const BUTTON_COLOR_INACTIVE: f64 = 0.0;
+const BUTTON_COLOR_ACTIVE: f64 = 0.0;
+// Letters and icons are pure red. Icons are authored white and recolored at draw time.
+const GLYPH_COLOR: (f64, f64, f64) = (1.0, 0.0, 0.0);
 const DEFAULT_ICON_SIZE: i32 = 48;
 const TIMEOUT_MS: i32 = 10 * 1000;
 
@@ -104,6 +107,26 @@ struct Button {
     action: Vec<Key>,
     icon_width: f64,
     icon_height: f64,
+}
+
+fn set_glyph_color(c: &Context) {
+    c.set_source_rgb(GLYPH_COLOR.0, GLYPH_COLOR.1, GLYPH_COLOR.2);
+}
+
+/// Paint an icon in the glyph color. Bundled SVGs and PNGs are white shapes
+/// on a transparent background, so their alpha is used as a mask.
+fn paint_recolored_svg(c: &Context, svg: &Handle, x: f64, y: f64, width: f64, height: f64) {
+    let px_w = width.ceil() as i32;
+    let px_h = height.ceil() as i32;
+    if px_w <= 0 || px_h <= 0 {
+        return;
+    }
+    let mask = ImageSurface::create(Format::ARgb32, px_w, px_h).unwrap();
+    let mask_ctx = Context::new(&mask).unwrap();
+    svg.render_document(&mask_ctx, &Rectangle::new(0.0, 0.0, width, height))
+        .unwrap();
+    set_glyph_color(c);
+    c.mask_surface(&mask, x, y).unwrap();
 }
 
 fn try_load_svg(path: &str) -> Result<ButtonImage> {
@@ -426,16 +449,14 @@ impl Button {
                     button_left_edge + (button_width as f64 / 2.0 - self.icon_width / 2.0).round();
                 let y = y_shift + ((height as f64 - self.icon_height) / 2.0).round();
 
-                svg.render_document(c, &Rectangle::new(x, y, self.icon_width, self.icon_height))
-                    .unwrap();
+                paint_recolored_svg(c, svg, x, y, self.icon_width, self.icon_height);
             }
             ButtonImage::Bitmap(surf) => {
                 let x =
                     button_left_edge + (button_width as f64 / 2.0 - self.icon_width / 2.0).round();
                 let y = y_shift + ((height as f64 - self.icon_height) / 2.0).round();
-                c.set_source_surface(surf, x, y).unwrap();
-                c.rectangle(x, y, self.icon_width, self.icon_height);
-                c.fill().unwrap();
+                set_glyph_color(c);
+                c.mask_surface(surf, x, y).unwrap();
             }
             ButtonImage::Time(format, locale) => {
                 let current_time = Local::now();
@@ -493,11 +514,14 @@ impl Button {
                     let x = button_left_edge + (button_width as f64 / 2.0 - width / 2.0).round();
                     let y = y_shift + ((height as f64 - DEFAULT_ICON_SIZE as f64) / 2.0).round();
 
-                    svg.render_document(
+                    paint_recolored_svg(
                         c,
-                        &Rectangle::new(x, y, DEFAULT_ICON_SIZE as f64, DEFAULT_ICON_SIZE as f64),
-                    )
-                    .unwrap();
+                        svg,
+                        x,
+                        y,
+                        DEFAULT_ICON_SIZE as f64,
+                        DEFAULT_ICON_SIZE as f64,
+                    );
                 }
                 if battery_mode.should_draw_text() {
                     c.move_to(
@@ -691,7 +715,7 @@ impl FunctionLayer {
                 c.close_path();
                 c.fill().unwrap();
             }
-            c.set_source_rgb(1.0, 1.0, 1.0);
+            set_glyph_color(&c);
             button.render(
                 &c,
                 height,
