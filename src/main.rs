@@ -1012,6 +1012,12 @@ fn real_main(drm: &mut DrmBackend) {
         input_main.dispatch().unwrap();
         for event in &mut input_tb.clone().chain(input_main.clone()) {
             backlight.process_event(&event);
+            // Refresh before classifying the touch. Otherwise a tap while the
+            // bar is dark is discarded, and the tap that should wake it does
+            // not reach the button.
+            if matches!(event, Event::Touch(_) | Event::Switch(_)) {
+                backlight.update_backlight(&cfg);
+            }
             match event {
                 Event::Device(DeviceEvent::Added(evt)) => {
                     let dev = evt.device();
